@@ -1,6 +1,7 @@
 #if WEB_AUTH_PLATFORM
 import Foundation
 import Combine
+import WebKit
 
 /// Thunk that returns a function that creates and returns a ``WebAuthUserAgent`` to perform a web-based operation.
 /// The ``WebAuthUserAgent`` opens the URL in an external user agent and then invokes the callback when done.
@@ -26,6 +27,9 @@ public protocol WebAuth: Trackable, Loggable {
 
     /// The ``Telemetry`` instance.
     var telemetry: Telemetry { get set }
+
+
+    func start(webView: WKWebView, callbackUrl: URL)
 
     // MARK: - Builder
 

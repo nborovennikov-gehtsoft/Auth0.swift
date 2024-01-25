@@ -1,6 +1,7 @@
 #if WEB_AUTH_PLATFORM
 import Foundation
 import Combine
+import WebKit
 
 final class Auth0WebAuth: WebAuth {
 
@@ -187,6 +188,34 @@ final class Auth0WebAuth: WebAuth {
         self.storage.store(transaction)
         userAgent.start()
         logger?.trace(url: authorizeURL, source: String(describing: userAgent.self))
+    }
+
+    func start(webView: WKWebView, callbackUrl: URL) {
+        let handler = self.handler(callbackUrl)
+        let state = self.state
+        var organization: String? = self.organization
+        var invitation: String?
+
+        if let invitationURL = self.invitationURL {
+            guard let queryItems = URLComponents(url: invitationURL, resolvingAgainstBaseURL: false)?.queryItems,
+                  let organizationId = queryItems.first(where: { $0.name == "organization" })?.value,
+                  let invitationId = queryItems.first(where: { $0.name == "invitation" })?.value else {
+                return
+            }
+
+            organization = organizationId
+            invitation = invitationId
+        }
+
+        let authorizeURL = self.buildAuthorizeURL(withRedirectURL: callbackUrl,
+                                                  defaults: handler.defaults,
+                                                  state: state,
+                                                  organization: organization,
+                                                  invitation: invitation)
+
+
+
+        webView.load(URLRequest(url: authorizeURL))
     }
 
     func clearSession(federated: Bool, callback: @escaping (WebAuthResult<Void>) -> Void) {
