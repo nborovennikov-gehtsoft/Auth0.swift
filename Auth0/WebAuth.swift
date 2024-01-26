@@ -1,3 +1,5 @@
+// swiftlint:disable file_length
+
 #if WEB_AUTH_PLATFORM
 import Foundation
 import Combine
@@ -27,10 +29,11 @@ public protocol WebAuth: Trackable, Loggable {
 
     /// The ``Telemetry`` instance.
     var telemetry: Telemetry { get set }
+    
+    // MARK: - Pure Web
 
-
-    func start(webView: WKWebView, callbackUrl: URL)
-
+    func webLogin(webView: WKWebView, callbackUrl: URL, callback: @escaping (WebAuthResult<Void>) -> Void)
+    
     // MARK: - Builder
 
     /**
@@ -135,6 +138,7 @@ public protocol WebAuth: Trackable, Loggable {
     /// Using this method will disable single sign-on (SSO).
     ///
     /// - Returns: The same `WebAuth` instance to allow method chaining.
+    /// - Requires: iOS 13+ or macOS. Has no effect on iOS 12.
     /// - Important: You don't need to call ``WebAuth/clearSession(federated:callback:)-9yv61`` if you are using this
     /// method on login, because there will be no shared cookie to remove.
     /// - Note: Don't use this method along with ``provider(_:)``. Use either one or the other, because this
@@ -142,7 +146,6 @@ public protocol WebAuth: Trackable, Loggable {
     ///
     /// ## See Also
     ///
-    /// - <doc:UserAgents>
     /// - [FAQ](https://github.com/auth0/Auth0.swift/blob/master/FAQ.md)
     /// - [prefersEphemeralWebBrowserSession](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/3237231-prefersephemeralwebbrowsersessio)
     func useEphemeralSession() -> Self
@@ -168,7 +171,6 @@ public protocol WebAuth: Trackable, Loggable {
     ///
     /// ## See Also
     ///
-    /// - <doc:UserAgents>
     /// - ``WebAuthProvider``
     func provider(_ provider: @escaping WebAuthProvider) -> Self
 

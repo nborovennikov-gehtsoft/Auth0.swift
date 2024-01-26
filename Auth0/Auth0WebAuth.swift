@@ -4,22 +4,22 @@ import Combine
 import WebKit
 
 final class Auth0WebAuth: WebAuth {
-
+    
     let clientId: String
     let url: URL
     let session: URLSession
     let storage: TransactionStore
-
+    
     var telemetry: Telemetry
     var logger: Logger?
-
-    #if os(macOS)
+    
+#if os(macOS)
     private let platform = "macos"
-    #else
+#else
     private let platform = "ios"
-    #endif
+#endif
     private let responseType = "code"
-
+    
     private(set) var parameters: [String: String] = [:]
     private(set) var ephemeralSession = false
     private(set) var issuer: String
@@ -30,24 +30,21 @@ final class Auth0WebAuth: WebAuth {
     private(set) var invitationURL: URL?
     private(set) var provider: WebAuthProvider?
     private(set) var onCloseCallback: (() -> Void)?
-
+    
     var state: String {
         return self.parameters["state"] ?? self.generateDefaultState()
     }
-
+    
     lazy var redirectURL: URL? = {
-        guard let bundleIdentifier = Bundle.main.bundleIdentifier,
-              let domain = self.url.host,
-              let baseURL = URL(string: "\(bundleIdentifier)://\(domain)") else { return nil }
-
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true)
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return nil }
+        var components = URLComponents(url: self.url, resolvingAgainstBaseURL: true)
+        components?.scheme = bundleIdentifier
         return components?.url?
-            .appendingPathComponent(self.url.path)
             .appendingPathComponent(self.platform)
             .appendingPathComponent(bundleIdentifier)
             .appendingPathComponent("callback")
     }()
-
+    
     init(clientId: String,
          url: URL,
          session: URLSession = URLSession.shared,
@@ -60,118 +57,119 @@ final class Auth0WebAuth: WebAuth {
         self.telemetry = telemetry
         self.issuer = url.absoluteString
     }
-
+    
     func connection(_ connection: String) -> Self {
         self.parameters["connection"] = connection
         return self
     }
-
+    
     func scope(_ scope: String) -> Self {
         self.parameters["scope"] = scope
         return self
     }
-
+    
     func connectionScope(_ connectionScope: String) -> Self {
         self.parameters["connection_scope"] = connectionScope
         return self
     }
-
+    
     func state(_ state: String) -> Self {
         self.parameters["state"] = state
         return self
     }
-
+    
     func parameters(_ parameters: [String: String]) -> Self {
         parameters.forEach { self.parameters[$0] = $1 }
         return self
     }
-
+    
     func redirectURL(_ redirectURL: URL) -> Self {
         self.redirectURL = redirectURL
         return self
     }
-
+    
     func nonce(_ nonce: String) -> Self {
         self.nonce = nonce
         return self
     }
-
+    
     func audience(_ audience: String) -> Self {
         self.parameters["audience"] = audience
         return self
     }
-
+    
     func issuer(_ issuer: String) -> Self {
         self.issuer = issuer
         return self
     }
-
+    
     func leeway(_ leeway: Int) -> Self {
         self.leeway = leeway
         return self
     }
-
+    
     func maxAge(_ maxAge: Int) -> Self {
         self.maxAge = maxAge
         return self
     }
-
+    
     func useEphemeralSession() -> Self {
         self.ephemeralSession = true
         return self
     }
-
+    
     func invitationURL(_ invitationURL: URL) -> Self {
         self.invitationURL = invitationURL
         return self
     }
-
+    
     func organization(_ organization: String) -> Self {
         self.organization = organization
         return self
     }
-
+    
     func provider(_ provider: @escaping WebAuthProvider) -> Self {
         self.provider = provider
         return self
     }
-
+    
     func onClose(_ callback: (() -> Void)?) -> Self {
         self.onCloseCallback = callback
         return self
     }
-
+    
     func start(_ callback: @escaping (WebAuthResult<Credentials>) -> Void) {
         guard let redirectURL = self.redirectURL, let urlScheme = redirectURL.scheme else {
             return callback(.failure(WebAuthError(code: .noBundleIdentifier)))
         }
-
+        
         let handler = self.handler(redirectURL)
         let state = self.state
         var organization: String? = self.organization
         var invitation: String?
-
+        
         if let invitationURL = self.invitationURL {
             guard let queryItems = URLComponents(url: invitationURL, resolvingAgainstBaseURL: false)?.queryItems,
                   let organizationId = queryItems.first(where: { $0.name == "organization" })?.value,
                   let invitationId = queryItems.first(where: { $0.name == "invitation" })?.value else {
                 return callback(.failure(WebAuthError(code: .invalidInvitationURL(invitationURL.absoluteString))))
             }
-
+            
             organization = organizationId
             invitation = invitationId
         }
-
+        
         let authorizeURL = self.buildAuthorizeURL(withRedirectURL: redirectURL,
                                                   defaults: handler.defaults,
                                                   state: state,
                                                   organization: organization,
                                                   invitation: invitation)
+        
         let provider = self.provider ?? WebAuthentication.asProvider(urlScheme: urlScheme,
                                                                      ephemeralSession: ephemeralSession)
         let userAgent = provider(authorizeURL) { [storage, onCloseCallback] result in
             storage.clear()
-
+            
             switch result {
             case .success:
                 onCloseCallback?()
@@ -189,35 +187,7 @@ final class Auth0WebAuth: WebAuth {
         userAgent.start()
         logger?.trace(url: authorizeURL, source: String(describing: userAgent.self))
     }
-
-    func start(webView: WKWebView, callbackUrl: URL) {
-        let handler = self.handler(callbackUrl)
-        let state = self.state
-        var organization: String? = self.organization
-        var invitation: String?
-
-        if let invitationURL = self.invitationURL {
-            guard let queryItems = URLComponents(url: invitationURL, resolvingAgainstBaseURL: false)?.queryItems,
-                  let organizationId = queryItems.first(where: { $0.name == "organization" })?.value,
-                  let invitationId = queryItems.first(where: { $0.name == "invitation" })?.value else {
-                return
-            }
-
-            organization = organizationId
-            invitation = invitationId
-        }
-
-        let authorizeURL = self.buildAuthorizeURL(withRedirectURL: callbackUrl,
-                                                  defaults: handler.defaults,
-                                                  state: state,
-                                                  organization: organization,
-                                                  invitation: invitation)
-
-
-
-        webView.load(URLRequest(url: authorizeURL))
-    }
-
+    
     func clearSession(federated: Bool, callback: @escaping (WebAuthResult<Void>) -> Void) {
         let endpoint = federated ?
             URL(string: "v2/logout?federated", relativeTo: self.url)! :
@@ -353,3 +323,35 @@ extension Auth0WebAuth {
 }
 #endif
 #endif
+
+// MARK: - Pure Web
+
+extension Auth0WebAuth {
+    
+    func webLogin(webView: WKWebView, callbackUrl: URL, callback: @escaping (WebAuthResult<Void>) -> Void) {
+        let handler = self.handler(callbackUrl)
+        let state = self.state
+        var organization: String? = self.organization
+        var invitation: String?
+        
+        if let invitationURL = self.invitationURL {
+            guard let queryItems = URLComponents(url: invitationURL, resolvingAgainstBaseURL: false)?.queryItems,
+                  let organizationId = queryItems.first(where: { $0.name == "organization" })?.value,
+                  let invitationId = queryItems.first(where: { $0.name == "invitation" })?.value else {
+                return callback(.failure(WebAuthError(code: .invalidInvitationURL(invitationURL.absoluteString))))
+            }
+            
+            organization = organizationId
+            invitation = invitationId
+        }
+        
+        let authorizeURL = self.buildAuthorizeURL(withRedirectURL: callbackUrl,
+                                                  defaults: handler.defaults,
+                                                  state: state,
+                                                  organization: organization,
+                                                  invitation: invitation)
+        
+        webView.load(URLRequest(url: authorizeURL))
+        return callback(.success(()))
+    }
+}
